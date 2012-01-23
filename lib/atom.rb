@@ -37,12 +37,18 @@ require 'rexml/formatters/pretty'
 require 'date'
 require 'pp'
 
+require 'rubygems'
+require 'json'
+require './lib/json_properties'
+
 
 =begin rdoc
    # http://www.atomenabled.org/developers/syndication/atom-format-spec.php
 =end
 
+
 module Atom
+
    
 def Atom.text_node name, value, parent
    if value
@@ -92,22 +98,61 @@ end
 =end
    
 class FeedDocument
-    attr_accessor :id           # string
-    attr_accessor :title        # Atom::Text
-    attr_accessor :subtitle     # Atom::Text
-    attr_accessor :updated      # string
-    attr_accessor :rights       # string
-    attr_accessor :icon         # uri
-    attr_accessor :logo         # uri
-    attr_accessor :entries      # array of Atom::Entry
-    attr_accessor :authors      # array of Atom::Person
-    attr_accessor :contributors # array of Atom::Person
-    attr_accessor :generator    # Atom::Generator
-    attr_accessor :links        # array of Atom::Link
-    attr_accessor :categories   # array of Atom::Category
-    attr_accessor :extensions   # array of Atom::Extension
+  include Jsonable
+  json_properties :id, 
+  	 :updated,
+  	 :uri,
+	   :title, 
+	   :subtitle, 
+	   :rights, 
+	   :generator, 
+	   :logo, 
+	   :icon, 
+	   :authors, 
+	   :contribtors, 
+	   :links, 
+	   :categories, 
+	   :extensions, 
+	   :entries
+     
+  json_parser(Proc.new { |doc, key, value|
+    case key
+    when :title, :subtitle : 
+      Atom::Text.from_json value
+    when :authors: 
+      value.each {|person| doc << (Atom::Author.from_json person)}
+    when :contributors: 
+      value.each {|person| doc << (Atom::Contributor.from_json person)}
+    when :entries: 
+      value.each {|entry| doc << (Atom::Entry.from_json entry)}
+    when :generator: 
+      Atom::Generator.from_json value
+    when :links: 
+      value.each {|link|  doc << (Atom::Link.from_json link)}
+    when :categories: 
+      value.each {|category| doc << (Atom::Category.from_json category)}
+    when :extensions: 
+      value.each {|extension| doc << (Atom::Extension.from_json category)}
+    else value
+    end
+    })
+  
+#    attr_accessor :id           # string
+#    attr_accessor :title        # Atom::Text
+#    attr_accessor :subtitle     # Atom::Text
+#    attr_accessor :updated      # string
+#    attr_accessor :rights       # string
+#    attr_accessor :icon         # uri
+#    attr_accessor :logo         # uri
+#    attr_accessor :entries      # array of Atom::Entry
+#    attr_accessor :authors      # array of Atom::Person
+#    attr_accessor :contributors # array of Atom::Person
+#    attr_accessor :generator    # Atom::Generator
+#    attr_accessor :links        # array of Atom::Link
+#    attr_accessor :categories   # array of Atom::Category
+#    attr_accessor :extensions   # array of Atom::Extension
     
-    attr_accessor :uri          # URI
+#    attr_accessor :uri          # URI
     
     AtomNamespace = 'http://www.w3.org/2005/Atom'
     
@@ -121,14 +166,13 @@ class FeedDocument
       end
     end
     
-    def initialize(url = "")
+    def initialize(url = nil)
        case url
        when URI
           @uri = url
        when String
           @uri = URI.parse(url)
        end
-       @uri = URI.parse(url)
        @authors =        []
        @entries =        []
        @contributors =   []
@@ -139,9 +183,9 @@ class FeedDocument
      end
     
     def fetch(needs_secure = false )
-         http = Net::HTTP.new(@uri.host, needs_secure ? 443 : 80)
- 		   http.use_ssl = needs_secure
-         http.verify_mode = OpenSSL::SSL::VERIFY_NONE if needs_secure
+      http = Net::HTTP.new(@uri.host, needs_secure ? 443 : 80)
+ 		  http.use_ssl = needs_secure
+      http.verify_mode = OpenSSL::SSL::VERIFY_NONE if needs_secure
 
          http_response = http.start do |conn| 
          	conn.get(@uri.request_uri)
@@ -204,6 +248,7 @@ class FeedDocument
         fmt.write(xml, o)
         self
     end
+    
     
     def parse_feed(feed_element)
        feed_element.each_element do |child|
@@ -498,13 +543,15 @@ end
 =end
 
 class Element
-    attr_accessor :base       # string
-    attr_accessor :language   # string
+  include Jsonable
+  json_properties :base, :lang
 end
 
 class Uri < Element
-   attr_accessor :name        # string
-   attr_accessor :uri         # URI
+
+  json_properties :name,
+ 		 :uri
+  
    def initialize uri = nil, name = nil
       @name = name if name
       @uri = uri if uri
@@ -514,7 +561,7 @@ class Uri < Element
       e = REXML::Element.new @name
       e << (REXML::Text.new @uri)
       xml << e
-   end
+   end		 
 end
 
 =begin rdoc
@@ -529,11 +576,20 @@ end
 =end
 
 class Person < Element
-   attr_accessor :name        # string
-   attr_accessor :uri         # URI
-   attr_accessor :email       # string
-   attr_accessor :extensions  # array of Atom::Extension
-    
+
+  json_properties :name,
+    :uri,
+   	:email,
+   	:extensions
+   
+  json_parser(Proc.new { |doc, key, value|
+    case key
+    when :extensions: 
+      value.each {|extension| doc << (Atom::Extension.from_json category)}
+    else value
+    end
+  })
+  
    def initialize name = nil
       @name = name if name
       @extensions = []
@@ -583,19 +639,40 @@ class Contributor < Person; end
 =end
 
 class Entry < Element
-   attr_accessor :id             # URI
-   attr_accessor :title          # Atom::Text
-   attr_accessor :source         # Atom::Source
-   attr_accessor :updated        # string
-   attr_accessor :published      # string
-   attr_accessor :authors        # array of Atom::Author
-   attr_accessor :contributors   # array of Atom::Contributor
-   attr_accessor :content        # Atom::Text
-   attr_accessor :summary        # Atom::Text
-   attr_accessor :rights         # Atom::Text
-   attr_accessor :categories     # array of Atom::Category
-   attr_accessor :links          # array of Atom::Link
-   attr_accessor :extensions     # array of Atom::Extension
+
+  json_properties :id,
+         :title, 
+         :source,
+         :updated,
+         :published,
+         :authors,
+         :contributors,
+         :content,
+         :summary,
+         :rights,
+         :categories,
+         :links,
+         :extensions
+  
+  json_parser(Proc.new { |entry, key, value|
+    case key
+    when :title, :subtitle, :summary, :rights, :content : 
+      Atom::Text.from_json value
+    when :authors: 
+      value.each {|person| entry << (Atom::Author.from_json person)}
+    when :contributors: 
+      value.each {|person| entry << (Atom::Contributor.from_json person)}
+    when :source: 
+      Atom::Source.from_json value
+    when :links: 
+      value.each {|link|  entry << (Atom::Link.from_json link)}
+    when :categories: 
+      value.each {|category| entry << (Atom::Category.from_json category)}
+    when :extensions: 
+      value.each {|extension| entry << (Atom::Extension.from_json category)}
+    else value
+    end
+    })
    
    def initialize title = nil
       @title = (Title.new title) if title
@@ -664,10 +741,11 @@ end
 =end
    
 class Category < Element
-    attr_accessor :term    # string
-    attr_accessor :scheme  # URI
-    attr_accessor :label   # string
-    
+  
+  json_properties :term,
+    	 :scheme,
+    	 :label
+   
     def initialize term = nil
       @term = term if term
     end
@@ -706,19 +784,27 @@ end
 =end
 
 class Source < Element
-   attr_accessor :id             # URI
-   attr_accessor :title          # Atom::Text
-   attr_accessor :subtitle       # Atom::Text
-   attr_accessor :updated        # string
-   attr_accessor :authors        # array of Atom::Author
-   attr_accessor :contributors   # array of Atom::Contributor
-   attr_accessor :generator      # Atom::Generator
-   attr_accessor :rights         # Atom::Text
-   attr_accessor :icon           # URI
-   attr_accessor :logo           # URI
-   attr_accessor :categories     # array of Atom::Category
-   attr_accessor :links          # array of Atom::Link
-   attr_accessor :extensions     # array of Atom::Extension
+
+  json_parser(Proc.new { |source, key, value|
+    case key
+    when :title, :subtitle, :summary, :rights, :content : 
+      Atom::Text.from_json value
+    when :authors: 
+      value.each {|person| source << (Atom::Author.from_json person)}
+    when :contributors: 
+      value.each {|person| source << (Atom::Contributor.from_json person)}
+    when :generator: 
+      Atom::Generator.from_json value
+    when :links: 
+      value.each {|link| source << (Atom::Link.from_json link)}
+    when :categories: 
+      value.each {|category| source << (Atom::Category.from_json category)}
+    when :extensions: 
+      value.each {|extension| source << (Atom::Extension.from_json category)}
+    else value
+    end
+  })
+  
     
    def initialize
       @authors =       []
@@ -760,6 +846,20 @@ class Source < Element
 
       xml << source
    end
+   
+   json_properties :id,
+      	 :title,
+      	 :subtitile,
+      	 :rights,
+      	 :generator,
+      	 :source,
+      	 :logo,
+      	 :icon,
+      	 :authors,
+      	 :contributors,
+      	 :links,
+      	 :categories,
+      	 :extensions
 end
 
 =begin rdoc
@@ -777,12 +877,6 @@ end
 =end
  
 class Link < Element
-    attr_accessor :href       # URI
-    attr_accessor :rel        # string
-    attr_accessor :type       # string
-    attr_accessor :hreflang   # string
-    attr_accessor :title      # string
-    attr_accessor :length     # string
     
     def initialize href = nil
       @href = href if href
@@ -802,6 +896,14 @@ class Link < Element
        
        xml << link
     end
+    
+    json_properties :href,
+      	 :rel,
+      	 :type,
+      	 :hreflang,
+      	 :title,
+      	 :length
+
 end
 
 =begin rdoc
@@ -819,9 +921,7 @@ atomTextConstruct = atomPlainTextConstruct | atomXHTMLTextConstruct
 =end
 
 class Text < Element
-   attr_accessor :type  # string
-   attr_accessor :text  # string
-    
+
    def initialize text = nil
       @text = text if text
    end
@@ -846,6 +946,10 @@ class Text < Element
        
       xml
    end
+   
+   json_properties :type,
+      	 :text
+
 end
 
 class Content  < Text; end
@@ -865,10 +969,7 @@ class Rights   < Text; end
 =end
 
 class Generator < Element
-   attr_accessor :uri      # URI
-   attr_accessor :version  # string
-   attr_accessor :text     # string
-   
+  
    def initialize text = nil
       @text = text if text
    end
@@ -882,13 +983,14 @@ class Generator < Element
       xml << gen
    end
    
+   json_properties :text,
+      	 :uri,
+      	 :version
+
 end
 
 class Extension
-   attr_accessor :attributes  # map of strings
-   attr_accessor :namespace   # string
-   attr_accessor :name        # string
-   attr_accessor :xml         # string
+  include Jsonable
    
    def initialize
       @attributes = {}
@@ -901,35 +1003,15 @@ class Extension
 
       xml << ext
    end
-end
    
+   json_properties :attributes,
+      	 :namespace,
+      	 :name,
+      	 :xml
+
+end
 end
 
-def feed_test(url)
-   pp "testing feed: #{url}"
-   feed = Atom::FeedDocument.fetch(url) {|xml, e| pp e.message;}
-   pp "finished test"
-   pp ""
-   
-end
 
 
-feed_test "http://feedvalidator.org/testcases/atom/3.2.1/no-name.xml"
-feed_test "http://feedvalidator.org/testcases/atom/1.1/extensive-nowarn.xml"
-feed_test "http://feedvalidator.org/testcases/atom/4.1.1/authorless-with-one-entry.xml"
-feed_test "http://search.twitter.com/search.atom?q=napster"
 
-feed = Atom::FeedDocument.new
-s = ""
-feed.write s do |f|
-   f.id = URI.parse "tag:atomic:pants:foo,mrobine"
-   f.updated = (Date.today).to_s
-   f.title = Atom::Text.new "test feed"
-   f << (Atom::Author.new "michael")
-   a = Atom::Entry.new "blah blah blah"
-   a.id = URI.parse "tag:atomic:pants:blah,mrobine"
-   a.updated = (Date.today).to_s
-   f << a
-end
-
-puts s
